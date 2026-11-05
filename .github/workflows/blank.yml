@@ -19,7 +19,8 @@ jobs:
       - name: Connexion à Tailscale
         uses: tailscale/github-action@v2
         with:
-          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          # ⚠️ Utilisation du nom exact de votre secret
+          authkey: ${{ secrets.TAILKEYSECRET }} 
           args: --hostname github-rdp-windows
 
       - name: Afficher les infos et garder la session active
