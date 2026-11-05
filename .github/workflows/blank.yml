@@ -1,0 +1,37 @@
+name: Windows RDP via Tailscale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Activer le Bureau à distance (RDP)
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Bureau à distance"
+
+      - name: Définir le mot de passe de l'utilisateur
+        run: |
+          net user runneradmin "P@ssw0rd2024!RDP"
+
+      - name: Connexion à Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          args: --hostname github-rdp-windows
+
+      - name: Afficher les infos et garder la session active
+        run: |
+          $ip = tailscale ip -4
+          Write-Host "======================================================"
+          Write-Host "CONNEXION RDP PRETE !"
+          Write-Host "Adresse IP Tailscale : $ip"
+          Write-Host "Nom d'utilisateur    : runneradmin"
+          Write-Host "Mot de passe         : P@ssw0rd2024!RDP"
+          Write-Host "======================================================"
+          Write-Host "La session restera active pendant 6 heures maximum."
+          
+          # Garde la machine allumée pendant 6 heures (21600 secondes)
+          Start-Sleep -Seconds 21600
