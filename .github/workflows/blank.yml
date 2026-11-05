@@ -9,35 +9,47 @@ jobs:
       - name: Activer RDP, pare-feu et mot de passe
         shell: powershell
         run: |
-          # 1. Activer RDP et désactiver la restriction d'accès
+          # 1. Activer RDP
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           
-          # 2. Désactiver complètement le pare-feu Windows pour éviter tout blocage
+          # 2. Désactiver le pare-feu Windows
           Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
           
-          # 3. Activer la Network Level Authentication (NLA)
-          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
+          # 3. Désactiver la Network Level Authentication (NLA)
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           
           # 4. Forcer le démarrage du service RDP
           Set-Service -Name TermService -StartupType Automatic
           Start-Service -Name TermService -ErrorAction SilentlyContinue
 
-          # 5. Définir le mot de passe de l'utilisateur runneradmin
+          # 5. Définir le mot de passe
           $runnerAdminPass = "P@ssw0rd2024!RDP"
           net user "runneradmin" $runnerAdminPass
 
       - name: Installer et connecter Tailscale
         shell: powershell
         run: |
+          # Télécharger et installer Tailscale
           Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
           Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/S" -Wait
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILKEYSECRET }} --hostname=github-runner-$env:GITHUB_RUN_ID
           
+          # Attendre que le service soit disponible
+          Start-Sleep -Seconds 10
+          
+          # Redémarrer le service Tailscale pour s'assurer qu'il est bien initialisé
+          Restart-Service -Name Tailscale -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 5
+          
+          # Lancer la connexion en mode unattended
+          $tailscaleExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          & $tailscaleExe up --authkey=${{ secrets.TAILKEYSECRET }} --unattended --hostname=github-runner-$env:GITHUB_RUN_ID
+          
+          # Attendre l'obtention de l'IP Tailscale
           $tsIP = $null
-          for ($i=1; $i -le 15; $i++){
-            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          for ($i=1; $i -le 20; $i++){
+            $tsIP = & $tailscaleExe ip -4
             if($tsIP){break}
-            Start-Sleep 4
+            Start-Sleep 5
           }
           if (-not $tsIP) { exit 1 }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
@@ -48,7 +60,7 @@ jobs:
           $tsIP = "${{ env.TAILSCALE_IP }}"
           $ipClean = $tsIP.Trim()
           
-          Write-Host "Vérification de l'écoute du port 3389 sur l'IP Tailscale ($ipClean)..."
+          Write-Host "Vérification de l'écoute du port 3389..."
           $listening = Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue
           
           if ($listening) {
