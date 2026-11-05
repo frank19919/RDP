@@ -9,8 +9,18 @@ jobs:
       - name: Activer RDP et définir le mot de passe
         shell: powershell
         run: |
+          # 1. Activer RDP
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          
+          # 2. Désactiver la Network Level Authentication (NLA) pour éviter les échecs de poignée de main
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          
+          # 3. S'assurer que le service RDP est démarré
+          Set-Service -Name TermService -StartupType Automatic
+          Start-Service -Name TermService -ErrorAction SilentlyContinue
+
+          # 4. Définir le mot de passe de l'utilisateur
           $runnerAdminPass = "P@ssw0rd2024!RDP"
           net user "runneradmin" $runnerAdminPass
 
