@@ -6,21 +6,23 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 360
     steps:
-      - name: Activer RDP et définir le mot de passe
+      - name: Activer RDP, pare-feu et mot de passe
         shell: powershell
         run: |
-          # 1. Activer RDP
+          # 1. Activer RDP et désactiver la restriction d'accès
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           
-          # 2. Désactiver la Network Level Authentication (NLA) pour éviter les échecs de poignée de main
-          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          # 2. Désactiver complètement le pare-feu Windows pour éviter tout blocage
+          Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
           
-          # 3. S'assurer que le service RDP est démarré
+          # 3. Activer la Network Level Authentication (NLA)
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
+          
+          # 4. Forcer le démarrage du service RDP
           Set-Service -Name TermService -StartupType Automatic
           Start-Service -Name TermService -ErrorAction SilentlyContinue
 
-          # 4. Définir le mot de passe de l'utilisateur
+          # 5. Définir le mot de passe de l'utilisateur runneradmin
           $runnerAdminPass = "P@ssw0rd2024!RDP"
           net user "runneradmin" $runnerAdminPass
 
@@ -40,14 +42,28 @@ jobs:
           if (-not $tsIP) { exit 1 }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
-      - name: Afficher les infos et garder la session active
+      - name: Vérifier l'écoute RDP, afficher les infos et maintenir la session
         shell: powershell
         run: |
+          $tsIP = "${{ env.TAILSCALE_IP }}"
+          $ipClean = $tsIP.Trim()
+          
+          Write-Host "Vérification de l'écoute du port 3389 sur l'IP Tailscale ($ipClean)..."
+          $listening = Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue
+          
+          if ($listening) {
+            Write-Host "✅ Le service RDP est bien à l'écoute sur le port 3389." -ForegroundColor Green
+          } else {
+            Write-Host "⚠️ Attention : Aucune écoute détectée sur le port 3389." -ForegroundColor Yellow
+          }
+          
           Write-Host "======================================================"
           Write-Host "CONNEXION RDP PRETE !"
-          Write-Host "Adresse IP Tailscale : ${{ env.TAILSCALE_IP }}"
+          Write-Host "Adresse IP Tailscale : $ipClean"
           Write-Host "Nom d'utilisateur    : runneradmin"
           Write-Host "Mot de passe         : P@ssw0rd2024!RDP"
           Write-Host "======================================================"
           Write-Host "La session restera active pendant 6 heures maximum."
+          
+          # Maintien de la session active
           while ($true) { Start-Sleep 300 }
