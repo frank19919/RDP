@@ -4,23 +4,40 @@ on: workflow_dispatch
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 360
     steps:
-      - name: Activer RDP
+      - name: Activer RDP et définir le mot de passe
+        shell: powershell
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-      - name: Mot de passe
+          $runnerAdminPass = "P@ssw0rd2024!RDP"
+          net user "runneradmin" $runnerAdminPass
+
+      - name: Installer et connecter Tailscale
+        shell: powershell
         run: |
-          Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd2024!RDP" -Force)
-      - name: Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          authkey: ${{ secrets.TAILKEYSECRET }}
-          args: --hostname github-rdp-windows
-      - name: Infos et Maintien
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
+          Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/S" -Wait
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILKEYSECRET }} --hostname=github-runner-$env:GITHUB_RUN_ID
+          
+          $tsIP = $null
+          for ($i=1; $i -le 15; $i++){
+            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+            if($tsIP){break}
+            Start-Sleep 4
+          }
+          if (-not $tsIP) { exit 1 }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+      - name: Afficher les infos et garder la session active
+        shell: powershell
         run: |
-          $ip = tailscale ip -4
-          Write-Host "IP: $ip"
-          Write-Host "User: runneradmin"
-          Write-Host "Pass: P@ssw0rd2024!RDP"
-          Start-Sleep -Seconds 21600
+          Write-Host "======================================================"
+          Write-Host "CONNEXION RDP PRETE !"
+          Write-Host "Adresse IP Tailscale : ${{ env.TAILSCALE_IP }}"
+          Write-Host "Nom d'utilisateur    : runneradmin"
+          Write-Host "Mot de passe         : P@ssw0rd2024!RDP"
+          Write-Host "======================================================"
+          Write-Host "La session restera active pendant 6 heures maximum."
+          while ($true) { Start-Sleep 300 }
